@@ -1,0 +1,8 @@
+black
+httpx
+mypy
+pytest
+pytest-asyncio
+pytest-mock
+ruff
+types-python-jose
