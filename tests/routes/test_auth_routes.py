@@ -34,17 +34,19 @@ async def test_callback_with_invalid_state_returns_400(async_client):
 
 @pytest.mark.asyncio
 async def test_callback_creates_user_if_not_exists(async_client, mock_oauth):
-    # Patch dependency to ensure route uses test DB
-    app.dependency_overrides[get_db] = get_test_session
+    # Patch get_db to yield session from test session maker
+    async def override_get_db():
+        async with get_test_session() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
 
     # Clear out test DB first
-    session_maker = await get_test_session()
-    async with session_maker as session:
+    async with get_test_session() as session:
         await session.execute(text("TRUNCATE users, accounts CASCADE"))
         await session.commit()
-        await session.close()
 
-    # Create mock user
+    # Mock Google OAuth user
     unique_email = f"newuser-{uuid.uuid4()}@example.com"
     mock_oauth.google.authorize_access_token.return_value = {
         "access_token": "fake-access-token"
@@ -55,20 +57,20 @@ async def test_callback_creates_user_if_not_exists(async_client, mock_oauth):
         "name": "New User",
     }
 
-    # Trigger route
+    # Call the endpoint
     response = await async_client.get("/auth/callback?code=fakecode&state=fakestate")
     assert response.status_code == 200
 
-    # ✅ Confirm user inserted in test DB
-    session_maker = await get_test_session()
-    async with session_maker as session:
+    # Confirm the user was created
+    async with get_test_session() as session:
         result = await session.execute(select(User).where(User.email == unique_email))
         user = result.scalar_one_or_none()
         assert user is not None
         assert user.email == unique_email
 
-    # Clean up override
+    # Cleanup
     app.dependency_overrides.clear()
+
 
 
 @pytest.mark.asyncio

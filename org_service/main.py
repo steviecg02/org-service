@@ -4,7 +4,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from org_service.middleware.jwt_middleware import JWTMiddleware
 from org_service.routes import auth_routes, secure_routes
-from org_service.db import engine, init_db
+from org_service.db import engine
 from org_service.config import settings
 
 middleware = [
@@ -24,9 +24,3 @@ middleware = [
 app = FastAPI(middleware=middleware)
 app.include_router(auth_routes.router)
 app.include_router(secure_routes.router)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_db(engine)
-    yield
