@@ -16,6 +16,7 @@ async_session_maker = async_sessionmaker(bind=engine, expire_on_commit=False)
 # Declare the shared Base for models
 Base = declarative_base()
 
+
 def get_sync_url_for_alembic() -> str:
     """Returns sync-style DB URL for use in Alembic config."""
     return settings.get_sync_database_url()

@@ -1,8 +1,8 @@
-black
+pre-commit
 httpx
 mypy
+pre-commit
 pytest
 pytest-asyncio
 pytest-mock
 ruff
-types-python-jose

@@ -50,11 +50,7 @@ test:
 	PYTHONPATH=. pytest -v --tb=short
 
 lint:
-	ruff check .
-
-format:
-	black .
-	ruff check . --fix
+	pre-commit run --all-files
 
 clean:
 	find . -type f -name '*.pyc' -delete

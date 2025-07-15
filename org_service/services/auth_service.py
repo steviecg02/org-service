@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import text
+from typing import AsyncGenerator
 
 from org_service.db import async_session_maker
 from org_service.config import settings
@@ -26,7 +26,7 @@ oauth.register(
 )
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Async dependency to provide a database session.
     """
@@ -36,7 +36,7 @@ async def get_db() -> AsyncSession:
 
 async def handle_google_callback(request: Request, db: AsyncSession) -> str:
     """
-    Handles OAuth callback, creates user and account if new, returns JWT.
+    Handles OAuth callback, creates user/account if new, returns JWT.
 
     Args:
         request (Request): Incoming FastAPI request.
@@ -51,11 +51,8 @@ async def handle_google_callback(request: Request, db: AsyncSession) -> str:
         logger.warning("OAuth callback failed: mismatching state")
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
-    logger.info("OAuth token received")
-
     nonce = request.session.get("nonce")
     userinfo = await oauth.google.parse_id_token(token, nonce)
-    logger.info(f"Google user info received for: {userinfo.get('email')}")
 
     google_sub = userinfo.get("sub")
     email = userinfo.get("email")
@@ -69,7 +66,6 @@ async def handle_google_callback(request: Request, db: AsyncSession) -> str:
     user = result.scalar_one_or_none()
 
     if not user:
-        logger.info("User not found, creating user and account")
         account = Account()
         db.add(account)
         await db.flush()
@@ -82,9 +78,7 @@ async def handle_google_callback(request: Request, db: AsyncSession) -> str:
         )
         db.add(user)
         await db.commit()
-        result = await db.execute(text("SELECT current_database(), pg_backend_pid()"))
-        db_name, pid = result.fetchone()
-        logger.info(f"🔍 Created user in DB: {db_name}, PID: {pid}")
+
         logger.info(f"Created new user: {email}")
     else:
         logger.info(f"Existing user found: {email}")
@@ -92,7 +86,7 @@ async def handle_google_callback(request: Request, db: AsyncSession) -> str:
     token_data = {
         "sub": str(user.user_id),
         "account_id": str(user.account_id),
-        "roles": ["owner"],  # stub
+        "roles": ["owner"],  # TODO: Replace with actual role resolution
         "email": user.email,
     }
 

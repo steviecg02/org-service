@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 import pytest_asyncio
+import sqlalchemy
 from httpx import AsyncClient, ASGITransport
 from jose import jwt
 from unittest.mock import AsyncMock
@@ -15,19 +16,30 @@ from org_service.main import app
 from org_service.models.account import Account
 from org_service.models.user import User
 from tests.utils.test_db import get_test_engine, get_test_session
-from sqlalchemy.exc import SAWarning
 
 
 # -- Silence pooled connection cleanup warnings
 def pytest_configure(config):
     warnings.filterwarnings(
-        "ignore", category=SAWarning, message=".*non-checked-in connection.*"
+        "ignore",
+        category=sqlalchemy.exc.SAWarning,
+        message=".*non-checked-in connection.*",
     )
 
 
 # -- Run Alembic migrations on the test DB
-@pytest.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", autouse=True)
 def apply_migrations():
+    """Drop all tables in the test DB and re-apply migrations via Alembic."""
+    # Drop all tables first
+    sync_url = settings.get_sync_database_url(test=True)
+    engine = sqlalchemy.create_engine(sync_url, future=True)
+    with engine.begin() as conn:
+        conn.execute(
+            sqlalchemy.text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        )
+
+    # Run Alembic migrations
     subprocess.run(["alembic", "upgrade", "head"], check=True)
 
 
@@ -35,6 +47,7 @@ def apply_migrations():
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
+
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -59,10 +72,12 @@ async def db_session():
 def get_db():
     raise NotImplementedError
 
+
 @pytest_asyncio.fixture(autouse=True)
 async def override_get_db(db_session):
     async def _override():
         yield db_session
+
     app.dependency_overrides[get_db] = _override
     yield
     app.dependency_overrides.clear()
@@ -116,4 +131,6 @@ def valid_jwt_token():
         "email": "test@example.com",
         "exp": now + 3600,
     }
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )

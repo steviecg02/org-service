@@ -4,6 +4,7 @@ Configuration loader for environment variables using Pydantic.
 
 from pydantic import BaseSettings
 
+
 class Settings(BaseSettings):
     """Application settings loaded from .env or environment variables."""
 
@@ -22,7 +23,9 @@ class Settings(BaseSettings):
         return url + "_test" if test else url
 
     def get_async_database_url(self, test: bool = False) -> str:
-        return self.get_sync_database_url(test).replace("postgresql://", "postgresql+asyncpg://")
+        return self.get_sync_database_url(test).replace(
+            "postgresql://", "postgresql+asyncpg://"
+        )
 
     class Config:
         env_file = ".env"

@@ -4,7 +4,7 @@ Authentication routes for login and callback endpoints.
 
 from authlib.common.security import generate_token
 from fastapi import APIRouter, Request, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from ..services.auth_service import oauth, handle_google_callback, get_db
 from ..config import settings
 
@@ -29,7 +29,7 @@ async def login(request: Request):
 
 
 @router.get("/callback")
-async def auth_callback(request: Request, db: Session = Depends(get_db)):
+async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Handles the OAuth callback, creates user, returns JWT.
 

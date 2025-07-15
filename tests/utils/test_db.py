@@ -7,7 +7,9 @@ from org_service.config import settings
 _test_engine = create_async_engine(
     settings.get_async_database_url(test=True), echo=False, future=True
 )
-_test_sessionmaker = async_sessionmaker(bind=_test_engine, class_=AsyncSession, expire_on_commit=False)
+_test_sessionmaker = async_sessionmaker(
+    bind=_test_engine, class_=AsyncSession, expire_on_commit=False
+)
 
 
 def get_test_engine():

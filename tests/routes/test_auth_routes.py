@@ -72,7 +72,6 @@ async def test_callback_creates_user_if_not_exists(async_client, mock_oauth):
     app.dependency_overrides.clear()
 
 
-
 @pytest.mark.asyncio
 async def test_callback_does_not_create_user_if_exists(
     async_client, existing_user, db_session, mock_oauth

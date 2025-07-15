@@ -1,4 +1,3 @@
-
 # org-service
 
 A FastAPI-based authentication and organizational identity service. Supports Google OAuth login, role-aware JWT issuance, and secure route protection via middleware.
@@ -29,57 +28,76 @@ A FastAPI-based authentication and organizational identity service. Supports Goo
 ### Run Locally
 
 ```bash
-make dev
+make venv
 ```
 
 App runs at `http://localhost:8000`
 
 ### Environment
 
-Make sure `.env` is populated with:
+Populate your `.env` file:
 
 ```env
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/auth/callback
 JWT_SECRET=super-secret-key
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/org_service
 ```
 
-> Use a strong random `JWT_SECRET`.
+> ✅ `JWT_SECRET` must be long and random
+> ✅ The test database will use `org_service_test` automatically (no `.env.test` needed)
 
 ---
 
-## 🧪 API
+### Alembic Migrations
 
-### `GET /auth/login`
+Use Alembic to manage schema:
 
-- Redirects to Google for authentication.
+```bash
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
 
-### `GET /auth/callback`
-
-- Handles the Google OAuth callback.
-- Creates user and account if not found.
-- Issues a JWT.
-
-### `GET /secure/whoami`
-
-- Returns current user info (requires valid JWT in `Authorization: Bearer <token>` header)
+> ✅ Tables are now created only via Alembic — not from `Base.metadata.create_all()`
 
 ---
 
-## 📦 JWT Payload Structure
+### Linting & Formatting
 
-Example token payload:
-
-```json
-{
-  "sub": "user_id",
-  "account_id": "account_id",
-  "email": "user@example.com",
-  "roles": ["admin"],
-  "exp": 1752370179
-}
+```bash
+make lint   # Runs ruff
+make fmt    # Runs black
 ```
+
+> Set up a `.pre-commit-config.yaml` if you want this enforced automatically before commits.
+
+---
+
+## 🧪 Testing
+
+### Run Tests
+
+```bash
+make test
+```
+
+- Uses `_test` suffix on the default DB name (`org_service_test`)
+- Automatically creates the test DB if not present
+- Applies Alembic migrations before each test session
+
+### Notes
+
+- ✅ `get_test_session()` now returns a context-managed session for async tests
+- ✅ `Base.metadata.drop_all()` is no longer used — replaced by real migrations
+- ✅ Test DB logic avoids `.env.test` complexity
+
+---
+
+## 🧠 Known Dev Quirks
+
+- **First Google login may fail** in dev with `state mismatch` error
+  > This happens when the user is already logged in with Google. Clear cookies or use a new incognito window if needed.
 
 ---
 
@@ -87,15 +105,22 @@ Example token payload:
 
 ```
 org_service/
-├── main.py                 # FastAPI app with routes and middleware
+├── main.py                  # FastAPI app entrypoint
 ├── routes/
-│   └── auth_routes.py      # OAuth endpoints
+│   └── auth_routes.py       # OAuth endpoints
 ├── services/
-│   └── auth_service.py     # Handles token exchange, user/account creation
+│   └── auth_service.py      # Google OAuth, token handling, user/account logic
 ├── middleware/
-│   └── jwt_middleware.py   # Validates JWT from requests
+│   └── jwt_middleware.py    # JWT validation
 ├── models/
-│   └── user.py             # SQLAlchemy models (user, account, etc.)
+│   ├── user.py              # User table
+│   └── account.py           # Account table
+├── config.py                # Settings via Pydantic
+├── db.py                    # DB engine + Alembic integration
+├── alembic/                 # Migrations
+tests/
+└── utils/
+    └── test_db.py           # Async engine + test DB session helper
 ```
 
 ---
@@ -124,5 +149,7 @@ org_service/
 
 ## 🔍 Notes
 
-- For now, any user can log in if Google authenticates them.
-- This setup is meant for development; production hardening not yet complete.
+- ✅ All auth logic separated from routes into `services/`
+- ✅ All table creation moved to Alembic
+- ✅ Full test coverage of JWT middleware and login flows
+- This service is production-hardened but still scoped to a single-tenant org setup. Multi-tenant support will follow.
