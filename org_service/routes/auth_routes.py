@@ -42,7 +42,7 @@ async def login(request: Request) -> RedirectResponse:
     nonce = generate_token()
     request.session["nonce"] = nonce
 
-    return await oauth.google.authorize_redirect(
+    return await oauth.google.authorize_redirect(  # type: ignore[no-any-return]
         request,
         settings.google_oauth_redirect_uri,
         nonce=nonce,
