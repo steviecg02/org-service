@@ -1,0 +1,181 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r dev-requirements.txt
+
+      - name: Run ruff (linting)
+        run: ruff check .
+
+      - name: Run ruff format (check formatting)
+        run: ruff format --check .
+
+      - name: Run mypy (type checking)
+        run: mypy org_service/
+
+      - name: Run bandit (security)
+        run: bandit -c pyproject.toml -r org_service/
+
+      - name: Check for secrets
+        run: detect-secrets scan --baseline .secrets.baseline
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r dev-requirements.txt
+
+      - name: Run tests with coverage
+        run: pytest --cov=org_service --cov-report=xml --cov-report=term-missing --cov-fail-under=80
+        env:
+          GOOGLE_CLIENT_ID: test-client-id
+          GOOGLE_CLIENT_SECRET: test-client-secret
+          GOOGLE_OAUTH_REDIRECT_URI: http://localhost:8000/auth/callback
+          JWT_SECRET_KEY: test-secret-key-for-ci-testing-only
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  docker-test:
+    name: Docker Container Test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test .env file
+        run: |
+          cat > .env << EOF
+          GOOGLE_CLIENT_ID=test-client-id
+          GOOGLE_CLIENT_SECRET=test-client-secret
+          GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/auth/callback
+          JWT_SECRET_KEY=test-secret-key-for-docker-testing-only
+          JWT_ALGORITHM=HS256
+          JWT_EXPIRY_SECONDS=604800
+          EOF
+
+      - name: Build Docker image
+        run: docker compose build
+
+      - name: Start services
+        run: docker compose up -d
+
+      - name: Wait for application to be ready
+        run: |
+          echo "Waiting for application to start..."
+          timeout 60 bash -c 'until curl -f http://localhost:8000/health; do sleep 2; done' || {
+            echo "Application failed to start. Container logs:"
+            docker compose logs
+            exit 1
+          }
+
+      - name: Test health endpoint
+        run: |
+          response=$(curl -s http://localhost:8000/health)
+          echo "Health response: $response"
+          echo "$response" | grep -q '"status":"healthy"' || {
+            echo "Health check failed"
+            docker compose logs
+            exit 1
+          }
+
+      - name: Test liveness endpoint
+        run: |
+          response=$(curl -s http://localhost:8000/live)
+          echo "Liveness response: $response"
+          echo "$response" | grep -q '"status":"alive"' || {
+            echo "Liveness check failed"
+            docker compose logs
+            exit 1
+          }
+
+      - name: Test readiness endpoint
+        run: |
+          response=$(curl -s http://localhost:8000/ready)
+          echo "Readiness response: $response"
+          echo "$response" | grep -q '"ready":true' || {
+            echo "Readiness check failed"
+            docker compose logs
+            exit 1
+          }
+
+      - name: Test metrics endpoint
+        run: |
+          response=$(curl -s http://localhost:8000/metrics)
+          echo "Checking metrics endpoint..."
+          echo "$response" | grep -q 'http_requests_total' || {
+            echo "Metrics endpoint missing expected metrics"
+            docker compose logs
+            exit 1
+          }
+
+      - name: Check for startup errors in logs
+        run: |
+          logs=$(docker compose logs)
+          if echo "$logs" | grep -iE "error|exception|traceback" | grep -v "continue-on-error"; then
+            echo "Found errors in application logs:"
+            echo "$logs"
+            exit 1
+          fi
+          echo "No errors found in logs"
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'

@@ -1,19 +1,19 @@
 """
-Handles Google OAuth login, user creation, and JWT generation.
+Handles Google OAuth login and JWT generation.
+Phase 1: Minimal implementation (no database, hardcoded values).
 """
 
-from authlib.integrations.base_client.errors import MismatchingStateError
-from authlib.integrations.starlette_client import OAuth
+# fmt: off
+from authlib.integrations.base_client.errors import (
+    MismatchingStateError,  # type: ignore[import-untyped]
+)
+from authlib.integrations.starlette_client import OAuth  # type: ignore[import-untyped]
+
+# fmt: on
 from fastapi import HTTPException
 from starlette.requests import Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from typing import AsyncGenerator
 
-from org_service.db import async_session_maker
-from org_service.config import settings
-from org_service.logging_config import logger
-from org_service.models import User, Account
+from org_service.config import logger, settings
 from org_service.utils.jwt import create_jwt_token
 
 oauth = OAuth()
@@ -26,68 +26,46 @@ oauth.register(
 )
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
+async def handle_google_callback(request: Request) -> str:
     """
-    Async dependency to provide a database session.
-    """
-    async with async_session_maker() as session:
-        yield session
+    Handles OAuth callback and returns JWT with hardcoded values.
 
-
-async def handle_google_callback(request: Request, db: AsyncSession) -> str:
-    """
-    Handles OAuth callback, creates user/account if new, returns JWT.
+    Phase 1: No database, no user/account creation. Just extract Google user info
+    and generate JWT with hardcoded org_id and is_owner=True.
 
     Args:
         request (Request): Incoming FastAPI request.
-        db (AsyncSession): SQLAlchemy async session.
 
     Returns:
         str: JWT access token.
+
+    Raises:
+        HTTPException: If OAuth state is invalid or user info is incomplete.
     """
     try:
         token = await oauth.google.authorize_access_token(request)
     except MismatchingStateError:
         logger.warning("OAuth callback failed: mismatching state")
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+        raise HTTPException(status_code=400, detail="Invalid OAuth state") from None
 
     nonce = request.session.get("nonce")
     userinfo = await oauth.google.parse_id_token(token, nonce)
 
     google_sub = userinfo.get("sub")
     email = userinfo.get("email")
-    name = userinfo.get("name")
 
-    if not all([google_sub, email, name]):
+    if not all([google_sub, email]):
         logger.error("Incomplete user info from Google")
         raise HTTPException(status_code=400, detail="Invalid Google response")
 
-    result = await db.execute(select(User).where(User.google_sub == google_sub))
-    user = result.scalar_one_or_none()
+    logger.info(f"User logged in via Google: {email}")
 
-    if not user:
-        account = Account()
-        db.add(account)
-        await db.flush()
-
-        user = User(
-            google_sub=google_sub,
-            email=email,
-            full_name=name,
-            account_id=account.account_id,
-        )
-        db.add(user)
-        await db.commit()
-
-        logger.info(f"Created new user: {email}")
-    else:
-        logger.info(f"Existing user found: {email}")
-
+    # Phase 1: Hardcoded values - no database lookup
     token_data = {
-        "sub": str(user.user_id),
-        "account_id": str(user.account_id),
-        "roles": ["owner"],  # TODO: Replace with actual role resolution
-        "email": user.email,
+        "sub": google_sub,  # Google user ID
+        "org_id": settings.hardcoded_org_id,  # Hardcoded org ID
+        "email": email,
+        "is_owner": True,  # Everyone is owner in Phase 1
     }
 
     return create_jwt_token(token_data)

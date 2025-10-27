@@ -1,25 +1,54 @@
 repos:
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-      - id: black
-
-  - repo: https://github.com/charliermarsh/ruff-pre-commit
-    rev: v0.4.3
+  # Code formatting and linting (auto-fix)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.3
     hooks:
       - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
 
+  # Type checking (fail if types missing)
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.10.0
     hooks:
       - id: mypy
-        additional_dependencies:
-          - types-requests
-          - sqlalchemy
-          - sqlalchemy[mypy]
+        additional_dependencies: [types-python-jose, pydantic, pydantic-settings, toml]
+        args: [--config-file=pyproject.toml]
 
+  # Security checks
+  # Bandit disabled in pre-commit due to toml dependency issues
+  # Will run in CI instead
+  # - repo: https://github.com/PyCQA/bandit
+  #   rev: 1.8.6
+  #   hooks:
+  #     - id: bandit
+  #     additional_dependencies: [toml]
+  #     args: [-c, pyproject.toml]
+
+  # Secrets detection
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+
+  # Basic file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+      - id: check-added-large-files
+
+  # Fast unit tests
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest (all tests)
+        entry: bash
+        args: [-c, 'source venv/bin/activate && pytest --maxfail=1 --tb=short -q']
+        language: system
+        pass_filenames: false
+        always_run: true

@@ -1,24 +1,20 @@
+"""
+Tests for authentication routes.
+Phase 1: Test Google OAuth login and callback (no database).
+"""
+
 import pytest
-import uuid
-from httpx import AsyncClient, ASGITransport
 from fastapi import status
-from sqlalchemy import select, text
+from httpx import ASGITransport, AsyncClient
+from jose import jwt
+
+from org_service.config import settings
 from org_service.main import app
-from org_service.models.user import User
-from tests.utils.test_db import get_test_session
-from org_service.routes.auth_routes import get_db
-
-
-@pytest.fixture
-def mock_oauth(mocker):
-    mock = mocker.patch("org_service.services.auth_service.oauth")
-    mock.google.authorize_access_token = mocker.AsyncMock()
-    mock.google.parse_id_token = mocker.AsyncMock()
-    return mock
 
 
 @pytest.mark.asyncio
 async def test_login_redirects_to_google():
+    """Test that /auth/login redirects to Google OAuth."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         resp = await ac.get("/auth/login", follow_redirects=False)
@@ -28,73 +24,56 @@ async def test_login_redirects_to_google():
 
 @pytest.mark.asyncio
 async def test_callback_with_invalid_state_returns_400(async_client):
+    """Test that OAuth callback with invalid state returns 400."""
     response = await async_client.get("/auth/callback?state=bad&code=123")
     assert response.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_callback_creates_user_if_not_exists(async_client, mock_oauth):
-    # Patch get_db to yield session from test session maker
-    async def override_get_db():
-        async with get_test_session() as session:
-            yield session
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    # Clear out test DB first
-    async with get_test_session() as session:
-        await session.execute(text("TRUNCATE users, accounts CASCADE"))
-        await session.commit()
-
-    # Mock Google OAuth user
-    unique_email = f"newuser-{uuid.uuid4()}@example.com"
-    mock_oauth.google.authorize_access_token.return_value = {
-        "access_token": "fake-access-token"
-    }
+async def test_callback_returns_jwt_with_hardcoded_org_id(async_client, mock_oauth):
+    """
+    Test that successful OAuth callback returns JWT with hardcoded org_id.
+    Phase 1: No database - just return JWT with Google user info + hardcoded values.
+    """
+    # Mock Google OAuth responses
+    mock_oauth.google.authorize_access_token.return_value = {"access_token": "fake-access-token"}
     mock_oauth.google.parse_id_token.return_value = {
-        "sub": "newuser-sub",
-        "email": unique_email,
-        "name": "New User",
+        "sub": "google-user-123",
+        "email": "testuser@example.com",
+        "name": "Test User",
     }
 
-    # Call the endpoint
+    # Call the callback endpoint
     response = await async_client.get("/auth/callback?code=fakecode&state=fakestate")
     assert response.status_code == 200
 
-    # Confirm the user was created
-    async with get_test_session() as session:
-        result = await session.execute(select(User).where(User.email == unique_email))
-        user = result.scalar_one_or_none()
-        assert user is not None
-        assert user.email == unique_email
+    # Verify response contains JWT
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
 
-    # Cleanup
-    app.dependency_overrides.clear()
+    # Decode JWT and verify it contains expected fields
+    decoded = jwt.decode(
+        data["access_token"],
+        settings.jwt_secret_key,
+        algorithms=[settings.jwt_algorithm],
+    )
+
+    assert decoded["sub"] == "google-user-123"
+    assert decoded["email"] == "testuser@example.com"
+    assert decoded["org_id"] == settings.hardcoded_org_id
+    assert decoded["is_owner"] is True
 
 
 @pytest.mark.asyncio
-async def test_callback_does_not_create_user_if_exists(
-    async_client, existing_user, db_session, mock_oauth
-):
-    mock_oauth.google.authorize_access_token.return_value = {
-        "access_token": "fake-access-token"
-    }
+async def test_callback_with_missing_email_returns_400(async_client, mock_oauth):
+    """Test that OAuth callback with incomplete user info returns 400."""
+    mock_oauth.google.authorize_access_token.return_value = {"access_token": "fake-access-token"}
+    # Missing email
     mock_oauth.google.parse_id_token.return_value = {
-        "sub": existing_user.google_sub,
-        "email": existing_user.email,
-        "name": existing_user.full_name,
+        "sub": "google-user-123",
+        "name": "Test User",
     }
 
     response = await async_client.get("/auth/callback?code=fakecode&state=fakestate")
-    assert response.status_code == 200
-
-    # ✅ Confirm no duplicate user was created
-    result = await db_session.execute(
-        select(User).where(User.email == existing_user.email)
-    )
-    users = result.scalars().all()
-    assert len(users) == 1
-
-
-# 🔜 Future: Add test for missing email/sub in parse_id_token
-# 🔜 Future: Add test for OAuth failure (bad token or raise error)
+    assert response.status_code == 400

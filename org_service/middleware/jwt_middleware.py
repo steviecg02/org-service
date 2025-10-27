@@ -1,22 +1,24 @@
 """
 Middleware to validate JWT tokens and inject user context into requests.
+Phase 1: Simplified for org_id instead of account_id.
 """
 
+from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from jose import JWTError, jwt
-from typing import Optional
-from ..config import settings
-from ..logging_config import logger
+
+from org_service.config import logger, settings
 
 
 class JWTMiddleware(BaseHTTPMiddleware):
     """
     Validates Authorization header and attaches user context to request.state.
+
+    Phase 1: JWT contains org_id (hardcoded) and is_owner instead of account_id/roles.
     """
 
-    def __init__(self, app, exempt_paths: Optional[list[str]] = None):
+    def __init__(self, app, exempt_paths: list[str] | None = None):
         super().__init__(app)
         self.exempt_paths = exempt_paths or []
 
@@ -34,14 +36,18 @@ class JWTMiddleware(BaseHTTPMiddleware):
             payload = jwt.decode(
                 token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
             )
+            # Phase 1: Store Google user ID, org_id, email, is_owner
             request.state.user = {
-                "user_id": payload["sub"],
-                "account_id": payload["account_id"],
+                "google_sub": payload["sub"],  # Google user ID
+                "org_id": payload["org_id"],
                 "email": payload["email"],
-                "roles": payload["roles"],
+                "is_owner": payload.get("is_owner", True),
             }
         except JWTError as e:
-            logger.warning(f"JWT validation failed: {e}")
+            logger.warning(
+                "JWT validation failed",
+                extra={"error": str(e), "path": request.url.path},
+            )
             return JSONResponse(status_code=401, content={"detail": "Invalid token"})
 
         return await call_next(request)

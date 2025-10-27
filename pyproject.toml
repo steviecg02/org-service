@@ -1,0 +1,159 @@
+[project]
+name = "org-service"
+version = "0.1.0"
+description = "Organization service with Google OAuth and JWT authentication"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "C90",    # mccabe complexity
+    "DTZ",    # flake8-datetimez
+    "T10",    # flake8-debugger
+    "EM",     # flake8-errmsg
+    "EXE",    # flake8-executable
+    "ISC",    # flake8-implicit-str-concat
+    "PIE",    # flake8-pie
+    "PT",     # flake8-pytest-style
+    "Q",      # flake8-quotes
+    "RET",    # flake8-return
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+    "ARG",    # flake8-unused-arguments
+    "PTH",    # flake8-use-pathlib
+    "ERA",    # eradicate (commented-out code)
+    "PL",     # pylint
+    "TRY",    # tryceratops
+    "RUF",    # ruff-specific rules
+]
+
+ignore = [
+    "E501",    # line too long (handled by formatter)
+    "PLR0913", # too many arguments (sometimes needed)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10  # Functions must be < 10 complexity
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__
+"tests/*" = ["ARG", "PLR2004"]  # Allow magic values in tests
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.mypy]
+python_version = "3.10"
+strict = false  # Gradually enable strict mode
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false  # Allow @retry, @app.get, etc.
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false  # Too noisy during development
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+# Per-module ignores for third-party libraries
+[[tool.mypy.overrides]]
+module = [
+    "jose.*",
+    "authlib.*",
+    "fastapi.*",
+    "starlette.*",
+    "httpx.*",
+    "pytest.*",
+    "pytest_asyncio.*",
+    "slowapi.*",
+    "pythonjsonlogger.*",
+    "prometheus_client.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# Relax strict mode for tests
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_untyped_decorators = false
+
+# Ignore untyped imports for specific modules
+[[tool.mypy.overrides]]
+module = "org_service.services.auth_service"
+warn_unused_ignores = false
+disable_error_code = ["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = "org_service.routes.auth_routes"
+warn_unused_ignores = false
+disable_error_code = ["import-untyped"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_default_fixture_loop_scope = "function"
+
+# Markers for test organization
+markers = [
+    "unit: Fast unit tests (< 100ms each)",
+    "integration: Integration tests (real DB, mocked APIs)",
+    "e2e: End-to-end tests (full workflow)",
+    "slow: Slow tests (> 1 second)",
+]
+
+# Coverage configuration
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",                              # Show summary of all test outcomes
+    "--cov=org_service",                # Coverage for org_service directory
+    "--cov-report=term-missing",        # Show missing lines
+    "--cov-report=html",                # HTML report
+    "--cov-fail-under=80",              # Fail if < 80% coverage
+]
+
+[tool.coverage.run]
+source = ["org_service"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+
+# Fail if coverage below threshold
+fail_under = 80
+
+[tool.bandit]
+exclude_dirs = ["tests", "venv", ".venv"]
+skips = ["B101"]  # Allow assert statements in tests

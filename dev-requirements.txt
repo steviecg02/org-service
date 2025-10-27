@@ -1,8 +1,13 @@
 pre-commit
 httpx
 mypy
-pre-commit
 pytest
 pytest-asyncio
+pytest-cov
 pytest-mock
 ruff
+types-python-jose
+bandit[toml]
+toml
+detect-secrets
+types-requests
